@@ -1,4 +1,4 @@
-package main
+package mrapps
 
 //
 // a MapReduce pseudo-application that counts the number of times map/reduce
@@ -8,14 +8,16 @@ package main
 // go build -buildmode=plugin crash.go
 //
 
-import "6.824/mr"
-import "math/rand"
-import "strings"
-import "strconv"
-import "time"
-import "fmt"
-import "os"
-import "io/ioutil"
+import (
+	"fmt"
+	"io/ioutil"
+	"mapreduce/mr"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
 
 var count int
 

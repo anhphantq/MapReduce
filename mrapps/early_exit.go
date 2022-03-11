@@ -1,4 +1,4 @@
-package main
+package mrapps
 
 //
 // a word-count application "plugin" for MapReduce.
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"6.824/mr"
+	"mapreduce/mr"
 )
 
 //

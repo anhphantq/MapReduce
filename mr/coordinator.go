@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/gob"
 	"log"
 	"net"
 	"net/http"
@@ -12,19 +13,20 @@ import (
 
 var ret = false
 
-
 type Coordinator struct {
 	// Your definitions here.
 
 	// For map phase
-	mutexMap sync.Mutex
-	mapTasks map[string]int // 1 is not assigned, 2 is assigned, 3 is done
+	mutexMap     sync.Mutex
+	mapTasks     map[int]int // 1 is not assigned, 2 is assigned, 3 is done
 	doneMapPhase int
-	timeOutMapCh chan string
+	timeOutMapCh chan int
+	fileName     []string
+	dirName      []string
 
 	// For reduce phase
-	mutexReduce sync.Mutex
-	reduceTasks map[int]int // 1 is not assigned, 2 is assigned, 3 is done
+	mutexReduce     sync.Mutex
+	reduceTasks     map[int]int // 1 is not assigned, 2 is assigned, 3 is done
 	doneReducePhase int
 	timeOutReduceCh chan int
 }
@@ -37,18 +39,18 @@ type Coordinator struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (c *Coordinator) AssignTask(args *EmptyArgs, reply *Reply) error {
-	if (c.doneMapPhase < len(c.mapTasks)){
+	if c.doneMapPhase < len(c.mapTasks) {
 
 		c.mutexMap.Lock()
-		
-		for k, v := range c.mapTasks{
-			if (v == 1){
-				reply.taskType = 1
-				reply.data = MapTask{filename: k}
+
+		for k, v := range c.mapTasks {
+			if v == 1 {
+				reply.TaskType = 1
+				reply.Data = MapTask{Filename: c.fileName[k], IdTask: k}
 				c.mapTasks[k] = 2
 
-				go func (task string)  {
-					time.Sleep(time.Second*10)
+				go func(task int) {
+					time.Sleep(time.Second * 10)
 
 					c.mutexMap.Lock()
 
@@ -60,7 +62,7 @@ func (c *Coordinator) AssignTask(args *EmptyArgs, reply *Reply) error {
 
 					c.timeOutMapCh <- k
 				}(k)
-				
+
 				c.mutexMap.Unlock()
 				return nil
 			}
@@ -68,34 +70,34 @@ func (c *Coordinator) AssignTask(args *EmptyArgs, reply *Reply) error {
 
 		c.mutexMap.Unlock()
 
-		reply.taskType = 0
+		reply.TaskType = 0
 		return nil
 	}
 
-	if (c.doneMapPhase == len(c.mapTasks)){
-		if (c.doneReducePhase < len(c.reduceTasks)){
+	if c.doneMapPhase == len(c.mapTasks) {
+		if c.doneReducePhase < len(c.reduceTasks) {
 			c.mutexReduce.Lock()
 
-			for k, v := range c.reduceTasks{
-				if (v == 1){
-					reply.taskType = 1
-					reply.data = ReduceTask{filename: k}
+			for k, v := range c.reduceTasks {
+				if v == 1 {
+					reply.TaskType = 1
+					reply.Data = ReduceTask{IdTask: k, NumOfMapTask: len(c.mapTasks), DirName: c.dirName[k]}
 					c.reduceTasks[k] = 2
-	
-					go func (task int)  {
-						time.Sleep(time.Second*10)
-	
+
+					go func(task int) {
+						time.Sleep(time.Second * 10)
+
 						c.mutexReduce.Lock()
-	
+
 						if c.reduceTasks[task] == 2 {
 							c.reduceTasks[task] = 1
 						}
-	
+
 						c.mutexReduce.Unlock()
-	
+
 						c.timeOutReduceCh <- k
 					}(k)
-					
+
 					c.mutexMap.Unlock()
 					return nil
 				}
@@ -108,14 +110,15 @@ func (c *Coordinator) AssignTask(args *EmptyArgs, reply *Reply) error {
 	return nil
 }
 
-func (c *Coordinator) DoneMapTask(args *DoneMapArgs, reply *EmptyReply) error{
+func (c *Coordinator) DoneMapTask(args *DoneMapArgs, reply *EmptyReply) error {
 	c.mutexMap.Lock()
 
-	if (c.mapTasks[args.filename] == 1) {
+	if c.mapTasks[args.IdTask] == 1 {
 		return nil
 	}
 
-	c.mapTasks[args.filename] = 3 
+	c.mapTasks[args.IdTask] = 3
+	c.dirName[args.IdTask] = args.Dirname
 	c.doneMapPhase++
 
 	c.mutexMap.Unlock()
@@ -123,21 +126,20 @@ func (c *Coordinator) DoneMapTask(args *DoneMapArgs, reply *EmptyReply) error{
 	return nil
 }
 
-func (c *Coordinator) DoneReduceTask(args *DoneReduceArgs, reply *EmptyReply) error{
+func (c *Coordinator) DoneReduceTask(args *DoneReduceArgs, reply *EmptyReply) error {
 	c.mutexReduce.Lock()
 
-	if (c.reduceTasks[args.filename] == 1) {
+	if c.reduceTasks[args.Filename] == 1 {
 		return nil
 	}
 
-	c.reduceTasks[args.filename] = 3 
+	c.reduceTasks[args.Filename] = 3
 	c.doneReducePhase++
 
 	c.mutexReduce.Unlock()
 
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -160,8 +162,8 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 
-func (c *Coordinator) isDone(args *EmptyArgs, reply *DoneReply) error{
-	reply.isDone = ret
+func (c *Coordinator) IsDone(args *EmptyArgs, reply *DoneReply) error {
+	reply.IsDone = ret
 	return nil
 }
 
@@ -175,14 +177,14 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 
-func checkTimeOutMap(c *Coordinator){
+func checkTimeOutMap(c *Coordinator) {
 	for {
-		v, ok := <- c.timeOutMapCh
+		v, ok := <-c.timeOutMapCh
 
-		if (!ok){
+		if !ok {
 			break
 		}
-	
+
 		c.mutexMap.Lock()
 
 		c.mapTasks[v] = 1
@@ -191,14 +193,14 @@ func checkTimeOutMap(c *Coordinator){
 	}
 }
 
-func checkTimeOutReduce(c *Coordinator){
+func checkTimeOutReduce(c *Coordinator) {
 	for {
-		v, ok := <- c.timeOutReduceCh
+		v, ok := <-c.timeOutReduceCh
 
-		if (!ok){
+		if !ok {
 			break
 		}
-	
+
 		c.mutexReduce.Lock()
 
 		c.reduceTasks[v] = 1
@@ -208,18 +210,37 @@ func checkTimeOutReduce(c *Coordinator){
 }
 
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
+	gob.Register(MapTask{})
+	gob.Register(ReduceTask{})
 	c := Coordinator{
-		mutexMap: sync.Mutex{},
-		doneMapPhase: 0,
-		timeOutMapCh: make(chan string, len(files)),
+		mutexMap:        sync.Mutex{},
+		doneMapPhase:    0,
+		timeOutMapCh:    make(chan int, len(files)),
+		mutexReduce:     sync.Mutex{},
+		doneReducePhase: 0,
+		timeOutReduceCh: make(chan int, nReduce),
 	}
+
+	c.dirName = make([]string, len(files))
+	c.fileName = make([]string, len(files))
+	c.mapTasks = make(map[int]int)
+	for i := 0; i < len(files); i++ {
+		c.mapTasks[i] = 1
+		c.fileName[i] = files[i]
+	}
+
+	c.reduceTasks = make(map[int]int)
+	for i := 0; i < len(files); i++ {
+		c.reduceTasks[i] = 1
+	}
+
 	c.server()
 
 	// Your code here.
 
 	// Map phase
 	go checkTimeOutMap(&c)
-	for c.doneMapPhase != len(files){
+	for c.doneMapPhase != len(files) {
 		time.Sleep(time.Second)
 	}
 
@@ -228,7 +249,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Reduce phase
 
 	go checkTimeOutReduce(&c)
-	for (c.doneReducePhase != nReduce){
+	for c.doneReducePhase != nReduce {
 		time.Sleep(time.Second)
 	}
 

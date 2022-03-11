@@ -1,4 +1,4 @@
-package worker
+package main
 
 //
 // start a worker process, which is implemented
@@ -18,15 +18,28 @@ import (
 	"plugin"
 )
 
+var path = "/home/phananhtq/Documents/cs6824/MapReduce"
+
 func main() {
-	if len(os.Args) != 2 {
+	if len(os.Args) != 3 {
 		fmt.Fprintf(os.Stderr, "Usage: mrworker xxx.so\n")
 		os.Exit(1)
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
 
-	mr.Worker(mapf, reducef)
+	var err error
+
+	os.RemoveAll(path + "/reduce_data/" + os.Args[2])
+
+	err = os.Mkdir(path+"/reduce_data/"+os.Args[2], 0755)
+	if err != nil {
+		log.Fatal(err, "line 94")
+	}
+
+	//fmt.Print("h")
+
+	mr.Worker(mapf, reducef, os.Args[2])
 }
 
 //
