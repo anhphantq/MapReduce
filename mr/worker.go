@@ -3,11 +3,13 @@ package mr
 import (
 	"encoding/gob"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -20,6 +22,14 @@ type KeyValue struct {
 	Value string
 }
 
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 var nReduce = 10
 
 //
@@ -31,8 +41,6 @@ func ihash(key string) int {
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
-
-var path = "/home/phananhtq/Documents/cs6824/MapReduce"
 
 //
 // main/mrworker.go calls this function.
@@ -56,7 +64,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 	defer c.Close()
 
-	args := EmptyArgs{}
+	args := AssignArgs{Worker: name}
 	replyDone := DoneReply{}
 	replyTask := Reply{}
 
@@ -71,16 +79,17 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 
 		err = c.Call("Coordinator.AssignTask", &args, &replyTask)
+		//fmt.Print(replyTask.TaskType, " ")
 
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 
-		if replyTask.TaskType == 0 {
+		if replyTask.TaskType == -1 {
 			time.Sleep(time.Second)
 		} else if replyTask.TaskType == 1 {
 			task := replyTask.Data.(MapTask)
-			file, err := os.Open(path + "/" + task.Filename)
+			file, err := os.Open(Path + "/" + task.Filename)
 
 			if err != nil {
 				log.Fatalf(err.Error())
@@ -109,24 +118,23 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			for i := 0; i < nReduce; i++ {
 				// os.Remove("../reduce_data/" + name + strconv.Itoa(task.idTask) + "-" + strconv.Itoa(i) + ".txt")
-				os.Rename(files[i].Name(), path+"/reduce_data/"+name+"/"+strconv.Itoa(task.IdTask)+"-"+strconv.Itoa(i)+".txt")
+				os.Rename(files[i].Name(), Path+"/reduce_data/"+name+"/"+strconv.Itoa(task.IdTask)+"-"+strconv.Itoa(i)+".txt")
 			}
 
-			err = c.Call("DoneMapTask", DoneMapArgs{Dirname: name, IdTask: task.IdTask}, EmptyReply{})
+			err = c.Call("Coordinator.DoneMapTask", DoneMapArgs{Dirname: name, IdTask: task.IdTask, Worker: name}, &EmptyReply{})
 
 			if err != nil {
 				log.Fatal(err.Error())
 			}
 		} else if replyTask.TaskType == 2 {
 			task := replyTask.Data.(ReduceTask)
+			var kva []KeyValue
 			for i := 0; i < task.NumOfMapTask; i++ {
-				file, err := os.Open("../reduce_data/" + name + "/" + strconv.Itoa(i) + "-" + strconv.Itoa(task.IdTask) + ".txt")
+				file, err := os.Open(Path + "/reduce_data/" + task.DirName[i] + "/" + strconv.Itoa(i) + "-" + strconv.Itoa(task.IdTask) + ".txt")
 
 				if err != nil {
 					log.Fatal(err.Error(), "line 115")
 				}
-
-				var kva []KeyValue
 
 				dec := json.NewDecoder(file)
 				for {
@@ -138,6 +146,36 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 			}
 
+			sort.Sort(ByKey(kva))
+
+			oname := "mr-out-" + strconv.Itoa(task.IdTask)
+			ofile, _ := os.Create(oname)
+
+			i := 0
+			for i < len(kva) {
+				j := i + 1
+				for j < len(kva) && kva[j].Key == kva[i].Key {
+					j++
+				}
+				values := []string{}
+				for k := i; k < j; k++ {
+					values = append(values, kva[k].Value)
+				}
+				output := reducef(kva[i].Key, values)
+
+				// this is the correct format for each line of Reduce output.
+				fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
+
+				i = j
+			}
+
+			ofile.Close()
+
+			err = c.Call("Coordinator.DoneReduceTask", DoneReduceArgs{Filename: task.IdTask, Worker: name}, &EmptyReply{})
+
+			if err != nil {
+				log.Fatal(err.Error())
+			}
 		}
 	}
 

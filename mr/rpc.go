@@ -16,10 +16,17 @@ import (
 // and reply for an RPC.
 //
 
+//"/home/phananhtq/Documents/cs6824/MapReduce"
+var Path = "/Users/anhphantq/Desktop/CS6824/MapReduce"
+
 type EmptyArgs struct {
 }
 
 type EmptyReply struct {
+}
+
+type AssignArgs struct {
+	Worker string
 }
 
 type DoneReply struct {
@@ -29,10 +36,12 @@ type DoneReply struct {
 type DoneMapArgs struct {
 	IdTask  int
 	Dirname string
+	Worker string
 }
 
 type DoneReduceArgs struct {
 	Filename int
+	Worker string
 }
 
 type dt interface {
@@ -51,7 +60,7 @@ type MapTask struct {
 type ReduceTask struct {
 	IdTask       int
 	NumOfMapTask int
-	DirName      string
+	DirName      []string
 }
 
 // Add your RPC definitions here.

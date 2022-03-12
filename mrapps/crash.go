@@ -1,4 +1,4 @@
-package mrapps
+package main
 
 //
 // a MapReduce pseudo-application that sometimes crashes,

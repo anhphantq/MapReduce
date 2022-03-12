@@ -16,30 +16,34 @@ import (
 	"mapreduce/mr"
 	"os"
 	"plugin"
+
+	"github.com/google/uuid"
 )
 
-var path = "/home/phananhtq/Documents/cs6824/MapReduce"
 
 func main() {
-	if len(os.Args) != 3 {
+	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: mrworker xxx.so\n")
 		os.Exit(1)
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
 
+	id := uuid.New()
+	var name = id.String()
+
 	var err error
 
-	os.RemoveAll(path + "/reduce_data/" + os.Args[2])
-
-	err = os.Mkdir(path+"/reduce_data/"+os.Args[2], 0755)
+	os.RemoveAll(mr.Path + "/reduce_data/" + name)
+		
+	err = os.Mkdir(mr.Path+"/reduce_data/"+name, 0755)
 	if err != nil {
 		log.Fatal(err, "line 94")
 	}
 
 	//fmt.Print("h")
 
-	mr.Worker(mapf, reducef, os.Args[2])
+	mr.Worker(mapf, reducef, name)
 }
 
 //
